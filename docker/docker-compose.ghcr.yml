@@ -1,0 +1,31 @@
+# 拉取已发布镜像的 overlay（不改上游 docker-compose.yml，也不改 docker-compose.local.yml）
+#
+# 用法（在 docker/ 目录下）：
+#   docker compose --env-file .env.local \
+#     -f docker-compose.yml -f docker-compose.local.yml -f docker-compose.ghcr.yml up -d
+#
+# 作用：把 polaris-wvp / polaris-nginx 从「本机构建」切成「拉取 CI 已推送的镜像」。
+#   镜像由 .github/workflows/docker-publish.yml 构建并推送到 GitHub Packages，
+#   分别对应 docker/wvp/Dockerfile.local 与 docker/nginx/Dockerfile.local，
+#   所以这里省掉的正是那十几分钟的 Maven + npm 构建。
+#
+# 关于 `build: !reset null`：
+#   不能只写 image:。compose 合并多个 -f 文件时，docker-compose.yml 里的 build 会被继承，
+#   而 image 和 build 同时存在时，up 走的是构建分支（构建完再打成这个 image 名），
+#   等于白拉。!reset 是 compose 的显式重置指令，实测（compose v5.5.1）能把继承来的
+#   build 键彻底清掉，docker compose config 的输出里只剩 image。
+#
+# 关于 GHCR 私有包：
+#   新建的包默认是 private。首次拉取前要么在 package 页面把可见性改成 public，
+#   要么先 docker login ghcr.io -u <用户名>（PAT 需要 read:packages 权限）。
+#
+# 想固定版本而不跟 latest 走，把下面的 :latest 换成具体标签即可（如 :v2.7.4 或 :sha-ab12cd3）。
+
+services:
+  polaris-wvp:
+    build: !reset null
+    image: ghcr.io/liuhong1happy/wvp_gb28181_pro_server:latest
+
+  polaris-nginx:
+    build: !reset null
+    image: ghcr.io/liuhong1happy/wvp_gb28181_pro_web:latest

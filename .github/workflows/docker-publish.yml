@@ -1,0 +1,83 @@
+name: docker-publish
+
+# 构建并推送 WVP 的两个镜像到 GitHub Packages (GHCR)：
+#   docker/wvp/Dockerfile.local   -> ghcr.io/<owner>/wvp_gb28181_pro_server
+#   docker/nginx/Dockerfile.local -> ghcr.io/<owner>/wvp_gb28181_pro_web
+#
+# 为什么独立成文件，而不是加进 build.yml：
+#   build.yml 是上游的文件，改它要付出上游合并时的冲突成本；而且这里的两个 Dockerfile
+#   都在容器内自行完成编译（后端 mvn package、前端 npm run build:prod），并不复用
+#   build.yml 的产物，用 needs: 串起来只会白白多等一轮完整的 Maven + npm 构建。
+#
+# 触发条件：push 到默认分支(main) / push v*.*.* 标签 / 手动触发。
+
+on:
+  push:
+    branches:
+      - main
+      - master # 本地工作分支名；push 到它同样出镜像，避免"推了却没触发"这种静默失败
+    tags:
+      - "v*.*.*"
+  workflow_dispatch:
+
+# 连续 push 时后一次取消前一次，避免两个 run 抢推同一个 latest 标签
+concurrency:
+  group: docker-publish-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  REGISTRY: ghcr.io
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read # actions/checkout
+      packages: write # 推送到 GHCR
+    strategy:
+      # 两个镜像互不依赖，一个失败不该取消另一个
+      fail-fast: false
+      matrix:
+        include:
+          - image: wvp_gb28181_pro_server
+            dockerfile: docker/wvp/Dockerfile.local
+          - image: wvp_gb28181_pro_web
+            dockerfile: docker/nginx/Dockerfile.local
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }} # 用内置 token，不额外配 PAT
+
+      - name: Compute tags and labels
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ github.repository_owner }}/${{ matrix.image }}
+          # 标签：分支名(main/master)、标签名(v2.7.4)、sha-<短哈希>，外加 latest。
+          # latest 只跟标签发布和默认分支走 —— 否则从任意分支手动触发一次就会把它覆盖掉。
+          tags: |
+            type=ref,event=branch
+            type=ref,event=tag
+            type=sha,prefix=sha-,format=short
+            type=raw,value=latest,enable=${{ github.ref_type == 'tag' || github.ref_name == github.event.repository.default_branch }}
+
+      - name: Build and push
+        uses: docker/build-push-action@v6
+        with:
+          context: . # 两个 Dockerfile 的构建上下文都是仓库根目录
+          file: ${{ matrix.dockerfile }}
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          # 默认开启的 SLSA provenance 会往 manifest list 里加一条 unknown/unknown。
+          # 本项目单架构、用不上，关掉让 docker images 输出保持干净。
+          provenance: false
