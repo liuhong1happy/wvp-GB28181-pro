@@ -31,6 +31,9 @@ env:
 jobs:
   publish:
     runs-on: ubuntu-latest
+    # 两个镜像各自要跑一轮完整的 Maven / npm 构建，给足时间；
+    # 超过这个上限判定为卡死（比如依赖仓库无响应），避免占着 runner 不放
+    timeout-minutes: 60
     permissions:
       contents: read # actions/checkout
       packages: write # 推送到 GHCR
