@@ -49,7 +49,11 @@ export default {
   props: {
     hasAudio: { type: Boolean, default: false },
     showButton: { type: Boolean, default: true },
-    showTab: { type: Boolean, default: true }
+    showTab: { type: Boolean, default: true },
+    // 覆盖默认的「播放器 → 取哪个地址字段」映射（见 data.player）。
+    // 只需给出要覆盖的键，其余沿用默认。用于让某个播放器在特定场景取不同的流地址，
+    // 例如回放页让 h265web 取 fmp4 而不是 ws_flv（见 cloudRecord/player.vue 的说明）。
+    playerUrlFields: { type: Object, default: null }
   },
   data() {
     return {
@@ -92,10 +96,14 @@ export default {
     },
     getUrlByStreamInfo() {
       if (!this.streamInfo) return ''
+      // playerUrlFields 可覆盖默认映射（只覆盖给出的键）
+      const fieldsMap = Object.assign({}, this.player, this.playerUrlFields || {})
+      const fields = fieldsMap[this.activePlayer]
+      if (!fields) return ''
       if (location.protocol === 'https:') {
-        return this.streamInfo[this.player[this.activePlayer][1]]
+        return this.streamInfo[fields[1]]
       }
-      return this.streamInfo[this.player[this.activePlayer][0]]
+      return this.streamInfo[fields[0]]
     },
     changePlayer(tab) {
       this.activePlayer = tab.name

@@ -1,10 +1,15 @@
 <template>
   <div id="cloudRecordPlayer" style="height: 100%">
     <div class="cloud-record-playBox" :style="playBoxStyle">
+      <!-- 回放流本身是 fMP4（ZLM 以 .live.mp4 提供，带 moov/styp/sidx/moof），
+           而 h265web 解那条 FLV 时会错用 ffmpeg 的 MOV 解复用器，报 moov atom not found。
+           所以回放页让 h265web 直接取 fmp4 地址 —— 给它真正的 MP4，解复用器就对了。
+           其余播放器仍用 ws_flv，实时播放那条路不受影响。 -->
       <playerTabs
         ref="recordVideoPlayer"
         :show-button="false"
         :showTab="false"
+        :player-url-fields="{ h265web: ['fmp4', 'https_fmp4'] }"
         @playTimeChange="showPlayTimeChange"
         @playStatusChange="playingChange"
         @player-changed="onPlayerChanged"

@@ -25,19 +25,24 @@ server {
         set $original_host ${Stream_IP};
         
         # 执行字符串替换
-        # 将媒体资源文件替换为Nginx输出的相对地址
-        sub_filter "http://$original_host/index/api/downloadFile" "mediaserver/api/downloadFile";
-        sub_filter "http://$original_host:80/index/api/downloadFile" "mediaserver/api/downloadFile";
-        sub_filter "https://$original_host/index/api/downloadFile" "mediaserver/api/downloadFile";
-        sub_filter "https://$original_host:443/index/api/downloadFile" "mediaserver/api/downloadFile";
-        sub_filter "http://$original_host/mp4_record" "mp4_record";
-        sub_filter "http://$original_host:80/mp4_record" "mp4_record";
-        sub_filter "https://$original_host/mp4_record" "mp4_record";
-        sub_filter "https://$original_host:443/mp4_record" "mp4_record";
-        sub_filter "ws://$original_host/mp4_record" "mp4_record";
-        sub_filter "ws://$original_host:80/mp4_record" "mp4_record";
-        sub_filter "wss://$original_host/mp4_record" "mp4_record";
-        sub_filter "wss://$original_host:443/mp4_record" "mp4_record";
+        # 将媒体资源地址里的媒体节点 IP 换成本站地址，让浏览器走 nginx 而不是直连媒体节点。
+        #
+        # 替换值必须以 / 开头（根相对），不能写成 "mp4_record/..." 这种不带斜杠的形式：
+        # 本站在 / 下、用 hash 路由，两种写法对"会自行解析相对地址"的消费者结果完全相同，
+        # 但 flv.js 是在 Blob URL 创建的 Worker 里 fetch（base 是 blob:，相对地址解析不了），
+        # 不带斜杠会直接抛 "Failed to parse URL"，表现为 h265web 播放器黑屏。
+        sub_filter "http://$original_host/index/api/downloadFile" "/mediaserver/api/downloadFile";
+        sub_filter "http://$original_host:80/index/api/downloadFile" "/mediaserver/api/downloadFile";
+        sub_filter "https://$original_host/index/api/downloadFile" "/mediaserver/api/downloadFile";
+        sub_filter "https://$original_host:443/index/api/downloadFile" "/mediaserver/api/downloadFile";
+        sub_filter "http://$original_host/mp4_record" "/mp4_record";
+        sub_filter "http://$original_host:80/mp4_record" "/mp4_record";
+        sub_filter "https://$original_host/mp4_record" "/mp4_record";
+        sub_filter "https://$original_host:443/mp4_record" "/mp4_record";
+        sub_filter "ws://$original_host/mp4_record" "/mp4_record";
+        sub_filter "ws://$original_host:80/mp4_record" "/mp4_record";
+        sub_filter "wss://$original_host/mp4_record" "/mp4_record";
+        sub_filter "wss://$original_host:443/mp4_record" "/mp4_record";
         
         # 设置为off表示替换所有匹配项，而不仅仅是第一个
         sub_filter_once off;
@@ -67,13 +72,20 @@ server {
     location ^~ /rtp/ {
         # 代理到ZLMediakit服务
         proxy_pass http://polaris-media:80;
-        
+
         # 基础HTTP代理配置
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
         proxy_set_header X-Forwarded-Proto $scheme;
-        
+
+        # 流式响应必须关掉缓冲。默认的 proxy_buffering on 会先把上游响应攒进内存缓冲，
+        # 攒满还会落到 /var/cache/nginx/proxy_temp 的临时文件（error.log 里有这条 warn）。
+        # HTTP-FLV 因此拿不到连续数据。WebSocket 升级后 nginx 转为隧道转发、不走缓冲，
+        # 所以 jessibuca(WS) 正常而直接走 HTTP-FLV 的播放器会黑屏。
+        proxy_buffering off;
+        proxy_cache off;
+
         # WebSocket支持配置
         proxy_http_version 1.1;
         proxy_set_header Upgrade $http_upgrade;
@@ -89,13 +101,17 @@ server {
     location ^~ /mp4_record/ {
         # 代理到ZLMediakit服务
         proxy_pass http://polaris-media:80;
-        
+
         # 基础HTTP代理配置
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
         proxy_set_header X-Forwarded-Proto $scheme;
-        
+
+        # 同 /rtp/：云端录像走的也是 HTTP-FLV，必须关缓冲，否则播放器拿不到连续数据
+        proxy_buffering off;
+        proxy_cache off;
+
         # WebSocket支持配置
         proxy_http_version 1.1;
         proxy_set_header Upgrade $http_upgrade;

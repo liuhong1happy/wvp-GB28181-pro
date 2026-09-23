@@ -7896,29 +7896,10 @@ var ASM_CONSTS = {
   418072: () => {
     const gl = Module.gl;
     if (!gl) return -1;
-    const info = gl.getExtension("WEBGL_debug_renderer_info");
-    if (info) {
-      const vendor = gl.getParameter(info.UNMASKED_VENDOR_WEBGL);
-      const renderer = gl.getParameter(info.UNMASKED_RENDERER_WEBGL);
-      console.log(`GPU: ${vendor} ${renderer}`);
-    }
-    let count = 0;
-    const width = 1920;
-    const height = 1080;
-    while (true) {
-      try {
-        const texture = gl.createTexture();
-        gl.bindTexture(gl.TEXTURE_2D, texture);
-        gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, width, height, 0, gl.RGBA, gl.UNSIGNED_BYTE, null);
-        count++;
-        console.log(`Created texture ${count}`);
-      } catch (e) {
-        break;
-      }
-    }
-    return count;
+    const maxTextureSize = gl.getParameter(gl.MAX_TEXTURE_SIZE);
+    return Number.isFinite(maxTextureSize) ? maxTextureSize : 0;
   },
-  418695: $0 => {
+  418240: $0 => {
     Module.gl = null;
     Module.shaderProgram = null;
     Module.gopChunk = [];
@@ -8188,14 +8169,14 @@ var ASM_CONSTS = {
     initFrameQueue(c_id);
     initDecoderCall(c_id);
   },
-  429858: $0 => {
+  429403: $0 => {
     const c_id = Module.UTF8ToString($0);
     if (!Module.frameQueueMap || !Module.frameQueueMap[c_id]) {
       return 0;
     }
     return Module.frameQueueMap[c_id].length;
   },
-  430014: $0 => {
+  429559: $0 => {
     if (Module.webcodec_seek_target_pts >= 0) {
       return -1;
     }
@@ -8227,7 +8208,8 @@ var ASM_CONSTS = {
     });
     return 1;
   },
-  431003: ($0, $1, $2, $3, $4, $5) => {
+  430548: () => Module.decoder_conf && Module.decoder_conf.description ? 1 : 0,
+  430623: ($0, $1, $2, $3, $4, $5) => {
     const canvasId = Module.UTF8ToString($4);
     const data = new Uint8Array(Module.HEAPU8.subarray($0, $0 + $1));
     if ($3 > 0) {
@@ -8464,6 +8446,8 @@ var _free = Module["_free"] = createExportWrapper("free", 1);
 
 var _bind_demuxer_callback = Module["_bind_demuxer_callback"] = createExportWrapper("bind_demuxer_callback", 10);
 
+var _bind_demuxer_sei_callback = Module["_bind_demuxer_sei_callback"] = createExportWrapper("bind_demuxer_sei_callback", 3);
+
 var _init_demuxer_ctx = Module["_init_demuxer_ctx"] = createExportWrapper("init_demuxer_ctx", 0);
 
 var _release_demuxer_ctx = Module["_release_demuxer_ctx"] = createExportWrapper("release_demuxer_ctx", 1);
@@ -8473,6 +8457,8 @@ var _push_buffer = Module["_push_buffer"] = createExportWrapper("push_buffer", 4
 var _push_probe = Module["_push_probe"] = createExportWrapper("push_probe", 2);
 
 var _fetch_done_buffer = Module["_fetch_done_buffer"] = createExportWrapper("fetch_done_buffer", 1);
+
+var _ffdemuxer_set_defer_probe_until_fetch_done = Module["_ffdemuxer_set_defer_probe_until_fetch_done"] = createExportWrapper("ffdemuxer_set_defer_probe_until_fetch_done", 2);
 
 var _demuxer_video_pkt = Module["_demuxer_video_pkt"] = createExportWrapper("demuxer_video_pkt", 3);
 
@@ -8495,6 +8481,8 @@ var _wcodec_init_gl_cb = Module["_wcodec_init_gl_cb"] = createExportWrapper("wco
 var _wcodec_create_data_buffer = Module["_wcodec_create_data_buffer"] = createExportWrapper("wcodec_create_data_buffer", 2);
 
 var _wcodec_feed_data = Module["_wcodec_feed_data"] = createExportWrapper("wcodec_feed_data", 5);
+
+var _wcodec_set_video_codec = Module["_wcodec_set_video_codec"] = createExportWrapper("wcodec_set_video_codec", 2);
 
 var _wcodec_reset_decoder_status = Module["_wcodec_reset_decoder_status"] = createExportWrapper("wcodec_reset_decoder_status", 1);
 
@@ -8521,6 +8509,12 @@ var _ffdecoder_set_video_decoder = Module["_ffdecoder_set_video_decoder"] = crea
 var _ffdecoder_set_video_decoder_with_extra = Module["_ffdecoder_set_video_decoder_with_extra"] = createExportWrapper("ffdecoder_set_video_decoder_with_extra", 6);
 
 var _ffdecoder_set_audio_decoder = Module["_ffdecoder_set_audio_decoder"] = createExportWrapper("ffdecoder_set_audio_decoder", 2);
+
+var _webrtc_ffdecoder_set_video_decoder_with_extra = Module["_webrtc_ffdecoder_set_video_decoder_with_extra"] = createExportWrapper("webrtc_ffdecoder_set_video_decoder_with_extra", 6);
+
+var _webrtc_ffdecoder_set_audio_decoder = Module["_webrtc_ffdecoder_set_audio_decoder"] = createExportWrapper("webrtc_ffdecoder_set_audio_decoder", 2);
+
+var _webrtc_ffdecoder_flush_video = Module["_webrtc_ffdecoder_flush_video"] = createExportWrapper("webrtc_ffdecoder_flush_video", 1);
 
 var _ffdecoder_decode_video_frame = Module["_ffdecoder_decode_video_frame"] = createExportWrapper("ffdecoder_decode_video_frame", 6);
 

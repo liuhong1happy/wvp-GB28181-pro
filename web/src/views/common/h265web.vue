@@ -34,10 +34,12 @@
 <script>
 const h265webPlayer = {}
 /**
- * 从github上复制的
- * @see https://github.com/numberwolf/h265web.js/blob/master/example_normal/index.js
+ * 新版 SDK（v20260824）的用法，详见上游 DOCS/README-HowToUse-CN.MD：
+ *   H265webjsPlayer() -> build(config) -> load_media(url)
+ * 旧版是 `new window.new265webjs(url, opts)` 且需要 token，新版不再需要。
+ * wasm / ext 四个运行时文件由 config 里的 *_uri 按需加载，index.html 只需引入 h265web.js。
  */
-const token = 'base64:QXV0aG9yOmNoYW5neWFubG9uZ3xudW1iZXJ3b2xmLEdpdGh1YjpodHRwczovL2dpdGh1Yi5jb20vbnVtYmVyd29sZixFbWFpbDpwb3JzY2hlZ3QyM0Bmb3htYWlsLmNvbSxRUTo1MzEzNjU4NzIsSG9tZVBhZ2U6aHR0cDovL3h2aWRlby52aWRlbyxEaXNjb3JkOm51bWJlcndvbGYjODY5NCx3ZWNoYXI6bnVtYmVyd29sZjExLEJlaWppbmcsV29ya0luOkJhaWR1'
+const SDK_BASE_URL = './static/js/h265web/' // 相对站点根，dist 里就是 /static/js/h265web/
 import dragZoom from '../../mixins/dragZoom'
 export default {
   name: 'H265web',
@@ -63,7 +65,8 @@ export default {
       inited: false,
       playerLoading: false,
       mediaInfo: null,
-      showBar: true
+      showBar: true,
+      err: ''
     }
   },
   watch: {
@@ -118,60 +121,87 @@ export default {
       }
     },
     create(url) {
+      if (typeof window.H265webjsPlayer !== 'function') {
+        this.playerLoading = false
+        this.err = 'h265web.js 未加载，检查 index.html 的 script 引入'
+        console.error(this.err)
+        return
+      }
       this.playerLoading = true
-      const options = {}
-      h265webPlayer[this._uid] = new window.new265webjs(url, Object.assign(
-        {
-          player: 'glplayer-' + this._uid,
-          width: this.playerWidth,
-          height: this.playerHeight,
-          token: token,
-          extInfo: {
-            coreProbePart: 0.4,
-            probeSize: 8192,
-            ignoreAudio: this.hasAudio === null ? 0 : (this.hasAudio ? 0 : 1)
-          }
-        },
-        options
-      ))
-      const h265web = h265webPlayer[this._uid]
-      h265web.onOpenFullScreen = () => {
-        this.fullscreen = true
-      }
-      h265web.onCloseFullScreen = () => {
-        this.fullscreen = false
-      }
-      h265web.onReadyShowDone = () => {
-        // 准备好显示了，尝试自动播放
-        const result = h265web.play()
-        this.playing = result
+      const player = window.H265webjsPlayer()
+
+      // 回调需在 build() 之前挂上
+      player.on_ready_show_done_callback = () => {
+        // 画面就绪，尝试自动播放
+        this.playing = !!player.play()
         this.playerLoading = false
       }
-      h265web.onLoadFinish = () => {
+      player.video_probe_callback = (mediaInfo) => {
+        // 探测完成，拿到媒体信息（替代旧版的 onLoadFinish + mediaInfo()）
         this.loaded = true
-        // 可以获取mediaInfo
-        // @see https://github.com/numberwolf/h265web.js/blob/8b26a31ffa419bd0a0f99fbd5111590e144e36a8/example_normal/index.js#L252C9-L263C11
-        this.mediaInfo = h265web.mediaInfo()
+        this.mediaInfo = mediaInfo
       }
-      h265web.onPlayTime = (videoPTS) => {
+      player.on_play_time = (videoPTS) => {
         this.$emit('playTimeChange', videoPTS * 1000)
       }
-      h265web.do()
+      player.on_play_finished = () => {
+        this.playing = false
+      }
+      player.on_error_callback = (err) => {
+        this.playerLoading = false
+        this.playing = false
+        this.err = err ? (err.message || err.msg || String(err)) : '播放出错'
+        console.error('h265web 播放错误', err)
+      }
+
+      const buildResult = player.build({
+        player_id: 'glplayer-' + this._uid,
+        base_url: SDK_BASE_URL,
+        wasm_js_uri: 'h265web_wasm.js',
+        wasm_wasm_uri: 'h265web_wasm.wasm',
+        ext_src_js_uri: 'extjs.js',
+        ext_wasm_js_uri: 'extwasm.js',
+        width: this.playerWidth,
+        height: this.playerHeight,
+        color: '#000000',
+        auto_play: false, // 交给 on_ready_show_done_callback 显式播放，与旧版行为一致
+        ignore_audio: this.hasAudio === null ? false : !this.hasAudio
+      })
+      if (!buildResult) {
+        this.playerLoading = false
+        this.err = 'h265web build 失败'
+        console.error(this.err)
+        return
+      }
+
+      h265webPlayer[this._uid] = player
+      player.load_media(url)
     },
     screenshot: function() {
-      if (h265webPlayer[this._uid]) {
-        const canvas = document.createElement('canvas')
-        console.log(this.mediaInfo)
-        canvas.width = this.mediaInfo.meta.size.width
-        canvas.height = this.mediaInfo.meta.size.height
-        h265webPlayer[this._uid].snapshot(canvas) // snapshot to canvas
-
-        // 下载截图
+      const player = h265webPlayer[this._uid]
+      if (!player) return
+      // 新版 SDK 是 screenshot(元素id)，把画面画进一个已存在的 <img>，
+      // 不再像旧版那样 snapshot(canvas)，所以这里自建一个隐藏 img 来接。
+      const imgId = 'h265web-shot-' + this._uid
+      let img = document.getElementById(imgId)
+      if (!img) {
+        img = document.createElement('img')
+        img.id = imgId
+        img.style.display = 'none'
+        document.body.appendChild(img)
+      }
+      player.screenshot(imgId)
+      // 绘制是否同步上游未说明，留一拍再取，拿不到就只告警不报错
+      setTimeout(() => {
+        if (!img.src) {
+          console.warn('h265web 截图未返回图像')
+          return
+        }
         const link = document.createElement('a')
         link.download = 'screenshot.png'
-        link.href = canvas.toDataURL('image/png').replace('image/png', 'image/octet-stream')
+        link.href = img.src
         link.click()
-      }
+      }, 300)
     },
     playBtnClick: function(event) {
       this.play(this.videoUrl)
@@ -211,13 +241,14 @@ export default {
     },
     mute: function() {
       if (h265webPlayer[this._uid]) {
-        h265webPlayer[this._uid].setVoice(0.0)
+        // 新版：set_voice(0) 静音，set_voice(正值) 恢复
+        h265webPlayer[this._uid].set_voice(0.0)
         this.isNotMute = false
       }
     },
     cancelMute: function() {
       if (h265webPlayer[this._uid]) {
-        h265webPlayer[this._uid].setVoice(1.0)
+        h265webPlayer[this._uid].set_voice(this.volume || 1.0)
         this.isNotMute = true
       }
     },
@@ -248,7 +279,9 @@ export default {
         document.webkitFullscreenElement || false
     },
     setPlaybackRate: function(speed) {
-      h265webPlayer[this._uid].setPlaybackRate(speed)
+      if (h265webPlayer[this._uid]) {
+        h265webPlayer[this._uid].set_playback_rate(speed)
+      }
     },
     getVideoElement() {
       return this.$refs.playerBox

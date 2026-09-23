@@ -18,6 +18,7 @@ import com.genersoft.iot.vmp.media.event.hook.HookSubscribe;
 import com.genersoft.iot.vmp.media.event.hook.HookType;
 import com.genersoft.iot.vmp.media.service.IMediaNodeServerService;
 import com.genersoft.iot.vmp.media.zlm.dto.*;
+import com.genersoft.iot.vmp.media.zlm.dto.hook.OriginType;
 import com.genersoft.iot.vmp.service.bean.DownloadFileInfo;
 import com.genersoft.iot.vmp.service.bean.ErrorCallback;
 import com.genersoft.iot.vmp.streamProxy.bean.StreamProxy;
@@ -515,6 +516,26 @@ public class ZLMMediaNodeServerService implements IMediaNodeServerService {
         return result;
     }
 
+    /**
+     * mp4_record 点播流的产生源类型是确定的 —— 就是 mp4_vod，不该沿用 hook 里带的值。
+     * <p>
+     * 原因：ZLM 的流注册事件是按 fmp4/rtmp/rtsp/hls/ts 依次发的，而 HookSubscribe 只在
+     * schema 为 null 或 rtsp 时的**最早那一次**派发（见 HookSubscribe.onApplicationEvent）。
+     * 那一刻 ZLM 还没给源归类完，hook 里报的是 originTypeStr=unknown；这个值会被
+     * getStreamInfoByAppAndStream 原样拼进播放地址的 query 交给 ZLM。
+     * 同一个流在 ZLM 的 getMediaList 里报的却是 mp4_vod（已在运行环境实测比对）。
+     * <p>
+     * 所以这里按事实补正，而不是去改 URL 或放宽 hook 的派发时机。
+     */
+    private MediaInfo fixMp4VodOrigin(MediaInfo mediaInfo) {
+        if (mediaInfo == null) {
+            return null;
+        }
+        mediaInfo.setOriginType(OriginType.MP4_VOD.ordinal());
+        mediaInfo.setOriginTypeStr("mp4_vod");
+        return mediaInfo;
+    }
+
     @Override
     public void loadMP4File(MediaServer mediaServer, String app, String stream, String filePath, String fileName, ErrorCallback<StreamInfo> callback) {
         String buildApp = MediaStreamUtil.LOAD_MP4_APP;
@@ -522,7 +543,7 @@ public class ZLMMediaNodeServerService implements IMediaNodeServerService {
 
         Hook hook = Hook.getInstance(HookType.on_media_arrival, buildApp, buildStream, mediaServer.getServerId());
         subscribe.addSubscribe(hook, (hookData) -> {
-            StreamInfo streamInfo = getStreamInfoByAppAndStream(mediaServer, buildApp, buildStream, hookData.getMediaInfo(), null, null, true);
+            StreamInfo streamInfo = getStreamInfoByAppAndStream(mediaServer, buildApp, buildStream, fixMp4VodOrigin(hookData.getMediaInfo()), null, null, true);
             if (callback != null) {
                 callback.run(ErrorCode.SUCCESS.getCode(), ErrorCode.SUCCESS.getMsg(), streamInfo);
             }
@@ -553,7 +574,7 @@ public class ZLMMediaNodeServerService implements IMediaNodeServerService {
 
         Hook hook = Hook.getInstance(HookType.on_media_arrival, buildApp, buildStream, mediaServer.getServerId());
         subscribe.addSubscribe(hook, (hookData) -> {
-            StreamInfo streamInfo = getStreamInfoByAppAndStream(mediaServer, buildApp, buildStream, hookData.getMediaInfo(), null, null, true);
+            StreamInfo streamInfo = getStreamInfoByAppAndStream(mediaServer, buildApp, buildStream, fixMp4VodOrigin(hookData.getMediaInfo()), null, null, true);
             if (callback != null) {
                 callback.run(ErrorCode.SUCCESS.getCode(), ErrorCode.SUCCESS.getMsg(), streamInfo);
             }
