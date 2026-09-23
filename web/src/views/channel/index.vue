@@ -343,15 +343,15 @@ export default {
       this.$router.push(`/channel/record/${channelId}`)
     },
     queryCloudRecords: function(itemData) {
-      // 云端录像按「流名」定位，后端拼流名的规则是 父设备国标ID_通道国标编码
+      // 云端录像按「流名」定位，后端拼流名的规则是 设备国标编码_通道国标编码
       // （PlayServiceImpl: device.getDeviceId() + "_" + channel.getDeviceId()）。
       // 注意不能照抄 device/channel/index.vue 的 this.deviceId / itemData.deviceId：
       // 这个组件的 props/data 里没有 deviceId，本页行数据是 CommonGBChannel，
       // 也没有 deviceId 字段，照抄会拼出 undefined_undefined。
-      // 本页对应字段是 gbParentId（父节点）与 gbDeviceId（通道编码）。
-      // 已知局限：通道被拖进虚拟组织后 gbParentId 会变成分组节点编码，
-      // 此时父设备ID不再正确。
-      const deviceId = itemData.gbParentId
+      // deviceGbId 是后端为本接口新增的字段 —— 由 data_device_id 关联出上级设备的
+      // 国标编码，和点播时 Device.deviceId 的来源一致。
+      // 不能用 gbParentId：通道被拖进虚拟组织后它会被覆盖成分组节点编码，设备段就错了。
+      const deviceId = itemData.deviceGbId
       const channelId = itemData.gbDeviceId
 
       this.$router.push(`/cloudRecord/detail/rtp/${deviceId}_${channelId}`)

@@ -141,6 +141,15 @@ public class CommonGBChannel {
     @Schema(description = "关联的设备ID")
     private Integer dataDeviceId;
 
+    /**
+     * 所属设备的国标编码（wvp_device.device_id），由 data_device_id 关联而来。
+     * 仅国标通道（data_type=1）有值。
+     * 注意与 gbDeviceId 区分：gbDeviceId 是本通道自己的国标编码，这个是上级设备的。
+     * 拼点播流名用的就是这个 —— 规则为 设备国标编码_通道国标编码。
+     */
+    @Schema(description = "所属设备的国标编码，仅国标通道有值")
+    private String deviceGbId;
+
     @Schema(description = "创建时间")
     private String createTime;
 

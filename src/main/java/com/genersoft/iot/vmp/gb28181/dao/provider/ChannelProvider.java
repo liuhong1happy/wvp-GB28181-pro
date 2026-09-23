@@ -13,7 +13,12 @@ import java.util.Map;
 
 public class ChannelProvider {
 
-    public final static String BASE_SQL = "select\n" +
+    /**
+     * wvp_device_channel 的列清单，不含 from 子句。
+     * 单独拆出来，是为了让需要在 select 列表里追加计算列的查询能复用它 ——
+     * 追加的列必须落在 "select ... from" 之间，而从 {@link #BASE_SQL} 末尾追加是加不进去的。
+     */
+    public final static String BASE_SQL_COLUMNS = "select\n" +
             "    id as gb_id,\n" +
             "    data_type,\n" +
             "    data_device_id,\n" +
@@ -56,9 +61,11 @@ public class ChannelProvider {
             "    coalesce(gb_business_group_id, business_group_id) as gb_business_group_id,\n" +
             "    coalesce(gb_download_speed, download_speed) as gb_download_speed,\n" +
             "    coalesce(gb_svc_space_support_mod, svc_space_support_mod) as gb_svc_space_support_mod,\n" +
-            "    coalesce(gb_svc_time_support_mode,svc_time_support_mode) as gb_svc_time_support_mode\n" +
-            " from wvp_device_channel\n"
+            "    coalesce(gb_svc_time_support_mode,svc_time_support_mode) as gb_svc_time_support_mode\n"
             ;
+
+    /** 完整的基础查询，等同于 BASE_SQL_COLUMNS + from 子句 */
+    public final static String BASE_SQL = BASE_SQL_COLUMNS + " from wvp_device_channel\n";
 
     public final static String BASE_SQL_TABLE_NAME = "select\n" +
             "    wdc.id as gb_id,\n" +
@@ -271,7 +278,18 @@ public class ChannelProvider {
 
     public String queryList(Map<String, Object> params ){
         StringBuilder sqlBuild = new StringBuilder();
-        sqlBuild.append(BASE_SQL);
+        sqlBuild.append(BASE_SQL_COLUMNS);
+        // 追加「所属设备的国标编码」。点播时流的设备段取的是 Device.deviceId，
+        // 而通道侧只能通过 data_device_id 才能定位到那台设备（见 DeviceChannelServiceImpl
+        // 的 deviceMapper.query(channel.getDataDeviceId())），gb_parent_id 在此不可用 ——
+        // 它会被虚拟组织覆盖成分组节点编码。
+        // 这里用相关子查询而不是 join：wvp_device 同样有 id/device_id/name 等同名列，
+        // join 进来会让 BASE_SQL_COLUMNS 里那些不带表名的列全部变歧义。
+        // 仅国标通道（data_type=1）成立，其余类型的 data_device_id 指向别的表。
+        sqlBuild.append("    ,(select d.device_id from wvp_device d\n" +
+                "        where d.id = wvp_device_channel.data_device_id\n" +
+                "          and wvp_device_channel.data_type = 1) as device_gb_id\n");
+        sqlBuild.append(" from wvp_device_channel\n");
         sqlBuild.append(" where channel_type = 0 ");
         if (params.get("query") != null) {
             sqlBuild.append(" AND (coalesce(gb_device_id, device_id) LIKE concat('%',#{query},'%') escape '/'" +
