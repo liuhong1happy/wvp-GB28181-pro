@@ -101,9 +101,15 @@ export default {
       const fields = fieldsMap[this.activePlayer]
       if (!fields) return ''
       if (location.protocol === 'https:') {
-        return this.streamInfo[fields[1]]
+        // 后端只在 sslPort > 0 时才生成 https_* / wss_* 变体（见 StreamInfo.setWsFlv）。
+        // 媒体节点若是通过 auto-config 从 ZLM 同步端口，而 ZLM 的 [http] sslport 为 0
+        // （例如它与 Traefik 共用宿主机、443 被占用的情况），那些字段就是 null，
+        // 直接取会拿到 undefined，播放器什么也播不出来。
+        // 此时退回非加密变体是安全的：经 nginx 的 sub_filter 改写后它与加密变体同为
+        // 同源根相对路径（如 /rtp/xxx.live.flv），浏览器会按页面协议自行解析。
+        return this.streamInfo[fields[1]] || this.streamInfo[fields[0]] || ''
       }
-      return this.streamInfo[fields[0]]
+      return this.streamInfo[fields[0]] || ''
     },
     changePlayer(tab) {
       this.activePlayer = tab.name
