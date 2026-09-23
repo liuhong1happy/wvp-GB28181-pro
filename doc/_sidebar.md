@@ -4,6 +4,7 @@
     * [编译](_content/introduction/compile.md)
     * [配置](_content/introduction/config.md)
     * [部署](_content/introduction/deployment.md)
+    * [Docker 部署](_content/introduction/deployment_docker.md)
 * **功能与使用**
     * [接入设备](_content/ability/device.md)
     * [国标设备](_content/ability/device_use.md)
