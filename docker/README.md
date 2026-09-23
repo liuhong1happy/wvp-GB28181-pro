@@ -40,4 +40,9 @@ docker compose --env-file .env.local \
 > GHCR 上新建的包**默认是 private**。首次拉取前，要么在 package 页面把可见性改成 public，
 > 要么先 `docker login ghcr.io -u <用户名>`（PAT 需要 `read:packages` 权限）。
 
+> 上面两条命令里的 `.env.local` 和 `docker/media/config.local.ini` **不在仓库里**
+> （见 `.git/info/exclude`）——它们含真实凭据（`SIP_Password`、ZLM 的 `secret`），
+> 所以被有意排除。换一台机器部署时这两个文件要自己补。仓库里能参考的是
+> `.env` 和 `media/config.ini`。
+
 其它的文件的作用暂不明确

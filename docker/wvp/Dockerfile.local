@@ -1,0 +1,45 @@
+# 本地构建用的 wvp 镜像（不改上游 docker/wvp/Dockerfile）
+#
+# 与上游的唯一差异：基础镜像。
+#   上游: ringcentral/jdk:21.0.9 + apt-get install maven
+#   本地: maven:3.9-eclipse-temurin-21（构建阶段）/ eclipse-temurin:21-jre（运行阶段）
+#
+# 原因：ringcentral/jdk 在本机不可得——Docker Hub 直连不通，而 m.daocloud.io 镜像
+# 对该仓库所有 tag 均返回 403。Docker 官方 openjdk 镜像已废弃归档，同样不可用。
+# eclipse-temurin 即 Eclipse Adoptium 对 OpenJDK 的构建（AdoptOpenJDK 继任者），
+# 许可证 GPLv2+CE，不含专有组件。
+#
+# 运行阶段用 JRE 而非 JDK：应用无任何 Runtime.exec / ProcessBuilder 调用，
+# 不需要容器内有 javac 等 JDK 工具。
+
+# ============================================================
+# 构建阶段
+# ============================================================
+FROM maven:3.9-eclipse-temurin-21 AS builder
+
+EXPOSE 18978/tcp
+EXPOSE 8116/tcp
+EXPOSE 8116/udp
+EXPOSE 8080/tcp
+
+COPY . /build
+WORKDIR /build
+
+RUN mvn clean package -Dmaven.test.skip=true
+
+WORKDIR /build/target
+# finalName 为 wvp-pro-2.7.4-<MMddHHmm>，用通配符统一改名为 wvp.jar
+RUN mv wvp-pro-*.jar wvp.jar
+
+# ============================================================
+# 运行阶段
+# ============================================================
+FROM eclipse-temurin:21-jre
+
+RUN mkdir -p /opt/wvp
+WORKDIR /opt/wvp
+
+COPY --from=builder /build/target /opt/wvp
+COPY ./docker/wvp/wvp /opt/wvp
+
+ENTRYPOINT ["java", "-Xms512m", "-Xmx1024m", "-XX:+HeapDumpOnOutOfMemoryError", "-XX:HeapDumpPath=/opt/ylcx/", "-jar", "wvp.jar", "--spring.config.location=/opt/ylcx/wvp/application.yml"]

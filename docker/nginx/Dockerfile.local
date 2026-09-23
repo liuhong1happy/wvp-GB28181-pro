@@ -1,0 +1,40 @@
+# 本地构建用的 nginx 镜像（不改上游 docker/nginx/Dockerfile）
+#
+# 与上游的差异：
+#   1. 构建阶段 ubuntu:24.04 + apt 装 nodejs/npm  ->  node:20-alpine
+#      （省掉 apt 往返，且 Node 版本可控。Ubuntu 24.04 自带 Node 18，同属 OpenSSL 3）
+#   2. 增加 NODE_OPTIONS=--openssl-legacy-provider
+#      本工程是 @vue/cli-service 4.4.4 + webpack 4，webpack 4 默认用 md4 做 hash，
+#      在 OpenSSL 3 下会抛 ERR_OSSL_EVP_UNSUPPORTED。已实测该 flag 有效。
+#   3. npm install 加 --legacy-peer-deps
+#      工程无 lock 文件（web/.gitignore 显式忽略 package-lock.json），
+#      现代 npm 的严格 peer 解析大概率报 ERESOLVE。
+#
+# 前端在容器内构建，本机不需要装 node。
+# 产物路径保持与上游一致：web/vue.config.js 的 outputDir 是 "../src/main/resources/static"，
+# 相对 /build 解析为 /src/main/resources/static。
+
+# ============================================================
+# 构建阶段
+# ============================================================
+FROM node:20-alpine AS builder
+
+ENV NODE_OPTIONS=--openssl-legacy-provider
+
+WORKDIR /build
+
+COPY ./web /build
+
+RUN npm install --legacy-peer-deps --registry=https://registry.npmmirror.com
+RUN npm run build:prod
+
+# ============================================================
+# 运行阶段
+# ============================================================
+FROM nginx:alpine
+
+ARG TZ=Asia/Shanghai
+
+COPY --from=builder /src/main/resources/static /opt/dist
+
+CMD ["nginx","-g","daemon off;"]

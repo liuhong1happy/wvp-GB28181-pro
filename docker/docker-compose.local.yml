@@ -1,0 +1,68 @@
+# 本地部署 overlay（不改上游 docker-compose.yml）
+#
+# 用法（在 docker/ 目录下）：
+#   docker compose --env-file .env.local \
+#     -f docker-compose.yml -f docker-compose.local.yml up -d --build
+#
+# 做四件事：
+#   1. 把 polaris-wvp / polaris-nginx 的 build.dockerfile 指向 *.local
+#   2. 修「wvp 抢跑 MySQL」——上游 depends_on 是短语法，不消费已定义的 healthcheck，
+#      这里改成长语法，让 wvp 真正等到 redis/mysql healthy 再启动
+#   3. 给 polaris-media 发布 80（HTTP 播放）与 8000（WebRTC）端口
+#   4. 给 polaris-media 换用 config.local.ini（开了 HLS、设了 rtc.externIP）
+#
+# 关于 3 和 4：
+#   wvp 生成的播放地址（FLV / WS-FLV / FMP4 / HLS）全部使用媒体节点的 http_port，
+#   见 ZLMMediaNodeServerService:668-675 与 ABLMediaNodeServerService:245。上游
+#   docker/media/config.ini 里 ZLM 的 [http] port=80，而 compose 并未发布这个端口
+#   （只有 nginx 的 8080 对外），于是 wvp 生成的地址一律指向宿主机 80 —— 无人监听，
+#   浏览器表现为「连接被拒绝」。把 80 发布出来即可让全部协议一并恢复。
+#   另有 enable_hls=0 是上游默认值，HLS 需单独打开，否则即使端口通了也返回 404。
+#
+# 关于 WebRTC：除了发布 8000 端口，还必须设置 rtc.externIP。上游默认 externIP 为空，
+#   ZLM 会拿容器自己的 IP（172.18.0.x）当 ICE 候选地址发给浏览器，而那个地址在 LAN 上
+#   根本路由不到，ICE 必然失败。wvp 的 auto-config 不推送任何 rtc.* 键
+#   （见 ZLMMediaServerStatusManager:270-300），所以这个值不会被覆盖。
+
+services:
+  polaris-media:
+    ports:
+      - "80:80"          # ZLM 的 HTTP 端口，wvp 生成的播放地址全靠它
+      - "8000:8000/udp"  # WebRTC RTC 端口（ICE/DTLS/SRTP 媒体流）
+      - "8000:8000/tcp"  # RTC over TCP
+    volumes:
+      # 覆盖上游的 ./media/config.ini:/conf/config.ini（Compose 按容器内路径合并，
+      # 后写的这条生效），改用本地版本以开启 HLS。
+      - ./media/config.local.ini:/conf/config.ini
+  polaris-mysql:
+    # 上游 healthcheck 用 TCP 探测 /dev/tcp/127.0.0.1/3306 是正确选择：
+    # MySQL 首次初始化时会先起一个 --skip-networking 的临时实例跑 init SQL，
+    # 那个阶段 TCP 3306 不可达，所以这个探测天然不会"提前通过"。
+    # 这里只放宽时间窗口——首次要建库建表，默认 15s×10 对冷启动偏紧。
+    healthcheck:
+      test: ["CMD", "bash", "-c", "cat < /dev/null > /dev/tcp/127.0.0.1/3306"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 60s
+
+  polaris-wvp:
+    build:
+      context: ..
+      dockerfile: ./docker/wvp/Dockerfile.local
+    # 长语法替换上游短语法。polaris-media 上游没有 healthcheck，只能用 service_started。
+    depends_on:
+      polaris-redis:
+        condition: service_healthy
+      polaris-mysql:
+        condition: service_healthy
+      polaris-media:
+        condition: service_started
+
+  polaris-nginx:
+    build:
+      context: ..
+      dockerfile: ./docker/nginx/Dockerfile.local
+    depends_on:
+      polaris-wvp:
+        condition: service_started
